@@ -114,16 +114,14 @@ fn printResults(allocator: std.mem.Allocator, results: *std.ArrayList(SearchResu
         }
         hasMatches = true;
 
-        try buffer.append('\'');
-        try buffer.appendSlice(result.bucketName);
-        try buffer.appendSlice("' bucket:\n");
-
         for (result.result.matches.items) |match| {
-            try buffer.appendSlice("    ");
             try buffer.appendSlice(match.name);
+            try buffer.append('\t');
+            try buffer.appendSlice(result.bucketName);
             try buffer.appendSlice(" (");
             try buffer.appendSlice(match.version);
-            try buffer.append(')');
+            try buffer.appendSlice(")\t");
+            try buffer.appendSlice(match.description);
             if (match.bin) |bin| {
                 try buffer.appendSlice(" --> includes '");
                 try buffer.appendSlice(bin);
@@ -131,11 +129,10 @@ fn printResults(allocator: std.mem.Allocator, results: *std.ArrayList(SearchResu
             }
             try buffer.append('\n');
         }
-        try buffer.append('\n');
     }
 
     if (!hasMatches) {
-        try buffer.appendSlice("No matches found.\n");
+        // try buffer.appendSlice("No matches found.\n");
     }
 
     try std.io.getStdOut().writeAll(buffer.items);

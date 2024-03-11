@@ -86,13 +86,21 @@ const ThreadPool = @import("thread_pool.zig").ThreadPool(ThreadPoolState);
 pub const SearchMatch = struct {
     name: []const u8,
     version: []const u8,
+    description: []const u8,
     bin: ?[]const u8,
     allocator: std.mem.Allocator,
 
-    fn init(allocator: std.mem.Allocator, name: []const u8, version: []const u8, bin: ?[]const u8) !@This() {
+    fn init(
+        allocator: std.mem.Allocator,
+        name: []const u8,
+        version: []const u8,
+        description: []const u8,
+        bin: ?[]const u8,
+    ) !@This() {
         return .{
             .name = try allocator.dupe(u8, name),
             .version = try allocator.dupe(u8, version),
+            .description = try allocator.dupe(u8, description),
             .bin = if (bin) |b| try allocator.dupe(u8, b) else null,
             .allocator = allocator,
         };
@@ -101,6 +109,7 @@ pub const SearchMatch = struct {
     pub fn deinit(self: *@This()) void {
         self.allocator.free(self.name);
         self.allocator.free(self.version);
+        self.allocator.free(self.description);
         if (self.bin) |bin| self.allocator.free(bin);
     }
 };
@@ -151,13 +160,13 @@ pub fn searchBucket(allocator: std.mem.Allocator, query: []const u8, bucketBase:
 }
 
 /// If the given binary name matches the query, add it to the matches.
-fn checkBin(allocator: std.mem.Allocator, bin: []const u8, query: []const u8, stem: []const u8, version: []const u8, matches: *std.ArrayList(SearchMatch)) !bool {
+fn checkBin(allocator: std.mem.Allocator, bin: []const u8, query: []const u8, stem: []const u8, version: []const u8, description: []const u8, matches: *std.ArrayList(SearchMatch)) !bool {
     const against = utils.basename(bin);
     const lowerBinStem = try std.ascii.allocLowerString(allocator, against.withoutExt);
     defer allocator.free(lowerBinStem);
 
     if (std.mem.containsAtLeast(u8, lowerBinStem, 1, query)) {
-        try matches.append(try SearchMatch.init(allocator, stem, version, against.withExt));
+        try matches.append(try SearchMatch.init(allocator, stem, version, description, against.withExt));
         return true;
     }
     return false;
@@ -184,6 +193,7 @@ fn matchPackageAux(packagesDir: std.fs.Dir, query: []const u8, manifestName: []c
 
     const Manifest = struct {
         version: ?[]const u8 = null,
+        description: ?[]const u8 = null,
         bin: ?std.json.Value = null, // can be: null, string, [](string | []string)
     };
 
@@ -191,29 +201,29 @@ fn matchPackageAux(packagesDir: std.fs.Dir, query: []const u8, manifestName: []c
     const parsed = std.json.parseFromSlice(Manifest, allocator, content, .{ .ignore_unknown_fields = true }) catch return;
     defer parsed.deinit();
     const version = parsed.value.version orelse "";
-
+    const description = parsed.value.description orelse "";
     const lowerStem = try std.ascii.allocLowerString(allocator, stem);
     defer allocator.free(lowerStem);
 
     // does the package name match?
     if (query.len == 0 or std.mem.containsAtLeast(u8, lowerStem, 1, query)) {
-        try state.matches.append(try SearchMatch.init(allocator, stem, version, null));
+        try state.matches.append(try SearchMatch.init(allocator, stem, version, description, null));
     } else {
         // the name did not match, lets see if any binary files do
         switch (parsed.value.bin orelse .null) {
             .string => |bin| {
-                _ = try checkBin(allocator, bin, query, stem, version, &state.matches);
+                _ = try checkBin(allocator, bin, query, stem, version, description, &state.matches);
             },
             .array => |bins| for (bins.items) |e|
                 switch (e) {
-                    .string => |bin| if (try checkBin(allocator, bin, query, stem, version, &state.matches)) {
+                    .string => |bin| if (try checkBin(allocator, bin, query, stem, version, description, &state.matches)) {
                         break;
                     },
                     .array => |args| {
                         // check only first two (exe, alias), the rest are command flags
                         if (args.items.len > 0) {
                             switch (args.items[0]) {
-                                .string => |bin| if (try checkBin(allocator, bin, query, stem, version, &state.matches)) {
+                                .string => |bin| if (try checkBin(allocator, bin, query, stem, version, description, &state.matches)) {
                                     break;
                                 },
                                 else => {},
@@ -221,7 +231,7 @@ fn matchPackageAux(packagesDir: std.fs.Dir, query: []const u8, manifestName: []c
                         }
                         if (args.items.len > 1) {
                             switch (args.items[1]) {
-                                .string => |bin| if (try checkBin(allocator, bin, query, stem, version, &state.matches)) {
+                                .string => |bin| if (try checkBin(allocator, bin, query, stem, version, description, &state.matches)) {
                                     break;
                                 },
                                 else => {},
